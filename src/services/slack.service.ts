@@ -1,6 +1,6 @@
 import { WebClient } from "@slack/web-api";
 import { env } from "../config/env";
-import { PendingSelection, IDailyStatus, ISelectedTicket } from "../models";
+import { PendingSelection, IDailyStatus, ISelectedTicket, getSetting } from "../models";
 import { Ticket, linearService } from "./linear.service";
 import { historyService } from "./history.service";
 
@@ -194,6 +194,8 @@ class SlackService {
     slackUserId: string,
     tickets: ISelectedTicket[]
   ): Promise<void> {
+    const channelId = await getSetting("slackDailyChannelId", env.slackDailyChannelId);
+    
     const ticketLines = tickets
       .map((t) => `• <${t.url}|${t.identifier}> ${t.title}`)
       .join("\n");
@@ -204,7 +206,7 @@ class SlackService {
         : `📋 *<@${slackUserId}>* has no tickets selected for today.`;
 
     await this.client.chat.postMessage({
-      channel: env.slackDailyChannelId,
+      channel: channelId,
       text: message,
       unfurl_links: false,
     });

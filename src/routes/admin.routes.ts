@@ -3,6 +3,7 @@ import path from "path";
 import { authenticator } from "otplib";
 import { env } from "../config/env";
 import { userService } from "../services";
+import { getSetting, setSetting } from "../models";
 import {
   getScheduleSettings,
   updateSchedule,
@@ -201,6 +202,29 @@ router.post("/api/trigger", authMiddleware, async (_req: Request, res: Response)
     // Run in background, respond immediately
     sendDailyPrompts().catch(console.error);
     res.json({ success: true, message: "Daily prompts triggered" });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// Settings management
+router.get("/api/settings", authMiddleware, async (_req: Request, res: Response) => {
+  try {
+    const channelId = await getSetting("slackDailyChannelId", env.slackDailyChannelId);
+    res.json({ channelId });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+router.post("/api/settings", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { channelId } = req.body;
+    if (channelId !== undefined) {
+      await setSetting("slackDailyChannelId", channelId);
+      console.log(`Updated channel ID to: ${channelId}`);
+    }
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: String(error) });
   }

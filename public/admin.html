@@ -477,6 +477,23 @@
       </div>
     </div>
 
+    <!-- Settings Card -->
+    <div class="card schedule-card">
+      <div class="card-header">
+        <span>Settings</span>
+      </div>
+      <div class="schedule-content">
+        <div class="schedule-form" style="border-top: none; padding-top: 0;">
+          <div class="form-row">
+            <label>Channel ID</label>
+            <input type="text" id="channelIdInput" placeholder="C0XXXXXXXXX">
+          </div>
+          <div class="cron-help">Slack channel ID where daily status is posted (starts with C)</div>
+          <button onclick="updateSettings()">Update Settings</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Add User -->
     <div class="add-user">
       <input type="email" id="newUserEmail" placeholder="user@company.com">
@@ -585,6 +602,7 @@
       document.getElementById('loginOverlay').classList.add('hidden');
       document.getElementById('mainContent').classList.remove('hidden');
       loadSchedule();
+      loadSettings();
     }
     
     async function loadUsers() {
@@ -646,7 +664,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Admin-Key': passkey
+            'X-Admin-Key': sessionToken
           },
           body: JSON.stringify({ email })
         });
@@ -798,6 +816,49 @@
         }
       } catch {
         showToast('Failed to trigger', true);
+      }
+    }
+    
+    // Settings management
+    async function loadSettings() {
+      try {
+        const res = await fetch('/admin/api/settings', {
+          headers: { 'X-Admin-Key': sessionToken }
+        });
+        const data = await res.json();
+        
+        document.getElementById('channelIdInput').value = data.channelId || '';
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+      }
+    }
+    
+    async function updateSettings() {
+      const channelId = document.getElementById('channelIdInput').value.trim();
+      
+      if (!channelId) {
+        showToast('Channel ID is required', true);
+        return;
+      }
+      
+      try {
+        const res = await fetch('/admin/api/settings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Key': sessionToken
+          },
+          body: JSON.stringify({ channelId })
+        });
+        
+        if (res.ok) {
+          showToast('Settings updated');
+        } else {
+          const data = await res.json();
+          showToast(data.error || 'Failed to update settings', true);
+        }
+      } catch {
+        showToast('Failed to update settings', true);
       }
     }
   </script>
