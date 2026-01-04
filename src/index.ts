@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { authenticator } from "otplib";
+import * as qrcode from "qrcode-terminal";
 import { env } from "./config/env";
 import { connectDatabase } from "./db/mongo";
 import { slackRoutes } from "./routes/slack.routes";
@@ -38,12 +39,12 @@ async function main(): Promise<void> {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
     
-    // Print TOTP setup info
+    // Print TOTP setup info with QR code
     const otpauth = authenticator.keyuri("admin", "DailyBot", env.adminTotpSecret);
     console.log("\n========== TOTP AUTHENTICATOR SETUP ==========");
-    console.log("Add this to your authenticator app:");
-    console.log(`Secret: ${env.adminTotpSecret}`);
-    console.log(`OTPAuth URL: ${otpauth}`);
+    console.log("Scan this QR code with your authenticator app:\n");
+    qrcode.generate(otpauth, { small: true });
+    console.log(`\nSecret: ${env.adminTotpSecret}`);
     console.log("===============================================\n");
   });
 
