@@ -35,5 +35,14 @@ export const env = {
   get adminTotpSecret() {
     return requireEnv("ADMIN_TOTP_SECRET");
   },
+  get jwtSecret() {
+    return requireEnv("JWT_SECRET");
+  },
+  get jwtExpiresIn() {
+    return optionalEnv("JWT_EXPIRES_IN", "24h");
+  },
+  get reminderDelayHours() {
+    return parseInt(optionalEnv("REMINDER_DELAY_HOURS", "2"), 10);
+  },
 };
 
