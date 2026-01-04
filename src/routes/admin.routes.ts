@@ -1,7 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import path from "path";
 import { authenticator } from "otplib";
-import * as QRCode from "qrcode";
 import { env } from "../config/env";
 import { userService } from "../services";
 import {
@@ -67,25 +66,6 @@ router.post("/api/auth", (req: Request, res: Response) => {
   }
 });
 
-// QR code for authenticator app setup (only accessible with a setup key)
-router.get("/api/setup-qr", async (req: Request, res: Response) => {
-  const setupKey = req.query.setupKey as string;
-  
-  // Use first 8 chars of TOTP secret as setup key for security
-  if (!setupKey || setupKey !== env.adminTotpSecret.substring(0, 8)) {
-    res.status(401).json({ error: "Invalid setup key" });
-    return;
-  }
-  
-  const otpauth = authenticator.keyuri("admin", "DailyBot", env.adminTotpSecret);
-  
-  try {
-    const qrDataUrl = await QRCode.toDataURL(otpauth);
-    res.json({ qrCode: qrDataUrl, secret: env.adminTotpSecret });
-  } catch {
-    res.status(500).json({ error: "Failed to generate QR code" });
-  }
-});
 
 // Serve admin UI
 router.get("/", (_req: Request, res: Response) => {
