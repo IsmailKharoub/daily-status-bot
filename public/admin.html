@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Bot Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #1e1e2e;
+      --text: #e4e4e7;
+      --text-dim: #71717a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+    
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    h1::before {
+      content: "◆";
+      color: var(--accent);
+    }
+    
+    .auth-section {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    input {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    
+    input:focus {
+      border-color: var(--accent);
+    }
+    
+    input::placeholder {
+      color: var(--text-dim);
+    }
+    
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-weight: 500;
+    }
+    
+    button:hover {
+      background: var(--accent-hover);
+    }
+    
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+    
+    .btn-secondary:hover {
+      background: var(--border);
+    }
+    
+    .btn-danger {
+      background: var(--danger);
+    }
+    
+    .btn-small {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+    }
+    
+    .add-user {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .add-user input {
+      flex: 1;
+    }
+    
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    .card-header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .user-list {
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    
+    .user-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      gap: 1rem;
+    }
+    
+    .user-item:last-child {
+      border-bottom: none;
+    }
+    
+    .user-info {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .user-email {
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+    
+    .user-meta {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      display: flex;
+      gap: 0.75rem;
+    }
+    
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      font-size: 0.625rem;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    
+    .badge-success {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+    }
+    
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+    }
+    
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+    
+    .user-actions {
+      display: flex;
+      gap: 0.375rem;
+    }
+    
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+    
+    .status-dot.disabled {
+      background: var(--text-dim);
+    }
+    
+    .empty-state {
+      padding: 3rem;
+      text-align: center;
+      color: var(--text-dim);
+    }
+    
+    .login-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    
+    .login-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 320px;
+      text-align: center;
+    }
+    
+    .login-box h2 {
+      font-size: 1rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    
+    .login-box h2::before {
+      content: "◆";
+      color: var(--accent);
+    }
+    
+    .login-box input {
+      width: 100%;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    
+    .login-box button {
+      width: 100%;
+    }
+    
+    .login-error {
+      color: var(--danger);
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      display: none;
+      animation: slideIn 0.2s ease;
+    }
+    
+    .toast.show {
+      display: block;
+    }
+    
+    .toast.error {
+      border-color: var(--danger);
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateY(1rem); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    .hidden { display: none !important; }
+    
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    @media (max-width: 640px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    
+    .schedule-card {
+      margin-bottom: 1.5rem;
+    }
+    
+    .schedule-content {
+      padding: 1rem;
+    }
+    
+    .schedule-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    
+    .schedule-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .schedule-label {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+    
+    .schedule-value {
+      font-weight: 500;
+    }
+    
+    .next-run {
+      color: var(--accent);
+    }
+    
+    .schedule-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    
+    .form-row label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      min-width: 70px;
+    }
+    
+    .form-row input, .form-row select {
+      flex: 1;
+    }
+    
+    select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.875rem;
+      outline: none;
+      cursor: pointer;
+    }
+    
+    select:focus {
+      border-color: var(--accent);
+    }
+    
+    .trigger-section {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    
+    .btn-trigger {
+      background: var(--success);
+    }
+    
+    .btn-trigger:hover {
+      background: #16a34a;
+    }
+    
+    .cron-help {
+      font-size: 0.625rem;
+      color: var(--text-dim);
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- Login Overlay -->
+  <div class="login-overlay" id="loginOverlay">
+    <div class="login-box">
+      <h2>Daily Bot Admin</h2>
+      <input type="password" id="passkeyInput" placeholder="Enter passkey" autofocus>
+      <button onclick="login()">Authenticate</button>
+      <div class="login-error hidden" id="loginError">Invalid passkey</div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="container hidden" id="mainContent">
+    <header>
+      <h1>Daily Bot Admin</h1>
+      <button class="btn-secondary btn-small" onclick="logout()">Logout</button>
+    </header>
+
+    <!-- Schedule Card -->
+    <div class="card schedule-card">
+      <div class="card-header">
+        <span>Schedule</span>
+        <div class="trigger-section">
+          <button class="btn-trigger btn-small" onclick="triggerNow()">Trigger Now</button>
+        </div>
+      </div>
+      <div class="schedule-content">
+        <div class="schedule-info">
+          <div class="schedule-row">
+            <span class="schedule-label">Next Run</span>
+            <span class="schedule-value next-run" id="nextRun">Loading...</span>
+          </div>
+          <div class="schedule-row">
+            <span class="schedule-label">Current Schedule</span>
+            <span class="schedule-value" id="currentCron">Loading...</span>
+          </div>
+          <div class="schedule-row">
+            <span class="schedule-label">Timezone</span>
+            <span class="schedule-value" id="currentTimezone">Loading...</span>
+          </div>
+        </div>
+        <div class="schedule-form">
+          <div class="form-row">
+            <label>Cron</label>
+            <input type="text" id="cronInput" placeholder="0 9 * * 1-5">
+          </div>
+          <div class="cron-help">Format: minute hour day-of-month month day-of-week (e.g., "0 9 * * 1-5" = 9 AM Mon-Fri)</div>
+          <div class="form-row">
+            <label>Timezone</label>
+            <select id="timezoneSelect"></select>
+          </div>
+          <button onclick="updateSchedule()">Update Schedule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add User -->
+    <div class="add-user">
+      <input type="email" id="newUserEmail" placeholder="user@company.com">
+      <button onclick="addUser()">Add User</button>
+    </div>
+
+    <!-- Users Card -->
+    <div class="card">
+      <div class="card-header">
+        <span>Enabled Users</span>
+        <span id="userCount">0 users</span>
+      </div>
+      <div class="user-list" id="userList">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let passkey = localStorage.getItem('adminPasskey') || '';
+    
+    // Check if already authenticated
+    if (passkey) {
+      checkAuth();
+    }
+    
+    document.getElementById('passkeyInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') login();
+    });
+    
+    document.getElementById('newUserEmail').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') addUser();
+    });
+    
+    async function checkAuth() {
+      try {
+        const res = await fetch('/admin/api/users', {
+          headers: { 'X-Admin-Key': passkey }
+        });
+        if (res.ok) {
+          showMain();
+          loadUsers();
+        } else {
+          localStorage.removeItem('adminPasskey');
+          passkey = '';
+        }
+      } catch {
+        localStorage.removeItem('adminPasskey');
+        passkey = '';
+      }
+    }
+    
+    async function login() {
+      const input = document.getElementById('passkeyInput');
+      const error = document.getElementById('loginError');
+      passkey = input.value;
+      
+      try {
+        const res = await fetch('/admin/api/users', {
+          headers: { 'X-Admin-Key': passkey }
+        });
+        
+        if (res.ok) {
+          localStorage.setItem('adminPasskey', passkey);
+          error.classList.add('hidden');
+          showMain();
+          loadUsers();
+        } else {
+          error.classList.remove('hidden');
+          input.value = '';
+        }
+      } catch {
+        error.classList.remove('hidden');
+      }
+    }
+    
+    function logout() {
+      localStorage.removeItem('adminPasskey');
+      passkey = '';
+      document.getElementById('loginOverlay').classList.remove('hidden');
+      document.getElementById('mainContent').classList.add('hidden');
+      document.getElementById('passkeyInput').value = '';
+    }
+    
+    function showMain() {
+      document.getElementById('loginOverlay').classList.add('hidden');
+      document.getElementById('mainContent').classList.remove('hidden');
+      loadSchedule();
+    }
+    
+    async function loadUsers() {
+      const list = document.getElementById('userList');
+      const count = document.getElementById('userCount');
+      
+      try {
+        const res = await fetch('/admin/api/users', {
+          headers: { 'X-Admin-Key': passkey }
+        });
+        const users = await res.json();
+        
+        count.textContent = `${users.length} user${users.length !== 1 ? 's' : ''}`;
+        
+        if (users.length === 0) {
+          list.innerHTML = '<div class="empty-state">No users added yet</div>';
+          return;
+        }
+        
+        list.innerHTML = users.map(user => `
+          <div class="user-item">
+            <div class="status-dot ${user.enabled ? '' : 'disabled'}"></div>
+            <div class="user-info">
+              <div class="user-email">${user.email}</div>
+              <div class="user-meta">
+                ${user.linearUserId 
+                  ? '<span class="badge badge-success">Linear ✓</span>' 
+                  : '<span class="badge badge-danger">No Linear</span>'}
+                ${user.slackUserId 
+                  ? '<span class="badge badge-success">Slack ✓</span>' 
+                  : '<span class="badge badge-danger">No Slack</span>'}
+              </div>
+            </div>
+            <div class="user-actions">
+              <button class="btn-secondary btn-small" onclick="toggleUser('${user.email}')">
+                ${user.enabled ? 'Disable' : 'Enable'}
+              </button>
+              <button class="btn-secondary btn-small" onclick="refreshUser('${user.email}')">
+                Refresh
+              </button>
+              <button class="btn-danger btn-small" onclick="removeUser('${user.email}')">
+                Remove
+              </button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        list.innerHTML = '<div class="empty-state">Failed to load users</div>';
+      }
+    }
+    
+    async function addUser() {
+      const input = document.getElementById('newUserEmail');
+      const email = input.value.trim();
+      if (!email) return;
+      
+      try {
+        const res = await fetch('/admin/api/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Key': passkey
+          },
+          body: JSON.stringify({ email })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+          input.value = '';
+          showToast(`Added ${email}`);
+          loadUsers();
+        } else {
+          showToast(data.error || 'Failed to add user', true);
+        }
+      } catch {
+        showToast('Failed to add user', true);
+      }
+    }
+    
+    async function removeUser(email) {
+      if (!confirm(`Remove ${email}?`)) return;
+      
+      try {
+        const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}`, {
+          method: 'DELETE',
+          headers: { 'X-Admin-Key': passkey }
+        });
+        
+        if (res.ok) {
+          showToast(`Removed ${email}`);
+          loadUsers();
+        } else {
+          showToast('Failed to remove user', true);
+        }
+      } catch {
+        showToast('Failed to remove user', true);
+      }
+    }
+    
+    async function toggleUser(email) {
+      try {
+        const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}/toggle`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': passkey }
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`${email} ${data.enabled ? 'enabled' : 'disabled'}`);
+          loadUsers();
+        } else {
+          showToast('Failed to toggle user', true);
+        }
+      } catch {
+        showToast('Failed to toggle user', true);
+      }
+    }
+    
+    async function refreshUser(email) {
+      try {
+        const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}/refresh`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': passkey }
+        });
+        
+        if (res.ok) {
+          showToast(`Refreshed ${email}`);
+          loadUsers();
+        } else {
+          showToast('Failed to refresh user', true);
+        }
+      } catch {
+        showToast('Failed to refresh user', true);
+      }
+    }
+    
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast show ${isError ? 'error' : ''}`;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+    
+    // Schedule management
+    async function loadSchedule() {
+      try {
+        const res = await fetch('/admin/api/schedule', {
+          headers: { 'X-Admin-Key': passkey }
+        });
+        const data = await res.json();
+        
+        document.getElementById('nextRun').textContent = data.nextRun || 'Unknown';
+        document.getElementById('currentCron').textContent = data.cronSchedule;
+        document.getElementById('currentTimezone').textContent = data.timezone;
+        document.getElementById('cronInput').value = data.cronSchedule;
+        
+        // Populate timezone dropdown
+        const select = document.getElementById('timezoneSelect');
+        select.innerHTML = data.timezones.map(tz => 
+          `<option value="${tz}" ${tz === data.timezone ? 'selected' : ''}>${tz}</option>`
+        ).join('');
+      } catch (err) {
+        console.error('Failed to load schedule:', err);
+      }
+    }
+    
+    async function updateSchedule() {
+      const cronSchedule = document.getElementById('cronInput').value.trim();
+      const timezone = document.getElementById('timezoneSelect').value;
+      
+      if (!cronSchedule) {
+        showToast('Cron schedule is required', true);
+        return;
+      }
+      
+      try {
+        const res = await fetch('/admin/api/schedule', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Key': passkey
+          },
+          body: JSON.stringify({ cronSchedule, timezone })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast('Schedule updated');
+          loadSchedule();
+        } else {
+          showToast(data.error || 'Failed to update schedule', true);
+        }
+      } catch {
+        showToast('Failed to update schedule', true);
+      }
+    }
+    
+    async function triggerNow() {
+      try {
+        const res = await fetch('/admin/api/trigger', {
+          method: 'POST',
+          headers: { 'X-Admin-Key': passkey }
+        });
+        
+        if (res.ok) {
+          showToast('Daily prompts triggered!');
+        } else {
+          showToast('Failed to trigger', true);
+        }
+      } catch {
+        showToast('Failed to trigger', true);
+      }
+    }
+  </script>
+</body>
+</html>
+
