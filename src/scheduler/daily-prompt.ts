@@ -1,6 +1,7 @@
 import cron, { ScheduledTask } from "node-cron";
 import { env } from "../config/env";
-import { getSetting, setSetting } from "../models";
+import { logger } from "../config/logger";
+import { getSetting, setSetting, EnabledUser } from "../models";
 import {
   userService,
   linearService,
@@ -8,14 +9,15 @@ import {
   historyService,
 } from "../services";
 
-let currentTask: ScheduledTask | null = null;
+let dailyTask: ScheduledTask | null = null;
+let reminderTask: ScheduledTask | null = null;
 
 async function sendDailyPrompts(): Promise<void> {
-  console.log("Starting daily status collection...");
+  logger.info("Starting daily status collection...");
 
   try {
     const userMapping = await userService.getEnabledUsers();
-    console.log(`Processing ${userMapping.size} enabled users...`);
+    logger.info({ userCount: userMapping.size }, "Processing enabled users");
 
     for (const [linearUserId, slackUserId] of userMapping) {
       try {
@@ -30,21 +32,48 @@ async function sendDailyPrompts(): Promise<void> {
             tickets,
             yesterdayStatus
           );
-          console.log(
-            `Sent daily prompt to ${slackUserId} with ${tickets.length} tickets`
-          );
+          logger.info({ slackUserId, ticketCount: tickets.length }, "Sent daily prompt");
         } else {
           await slackService.sendNoTicketsMessage(slackUserId);
-          console.log(`Sent no-tickets message to ${slackUserId}`);
+          logger.info({ slackUserId }, "Sent no-tickets message");
         }
       } catch (error) {
-        console.error(`Failed to process user ${linearUserId}:`, error);
+        logger.error({ error, linearUserId }, "Failed to process user");
       }
     }
 
-    console.log("Daily status collection complete");
+    logger.info("Daily status collection complete");
   } catch (error) {
-    console.error("Failed to run daily prompts:", error);
+    logger.error({ error }, "Failed to run daily prompts");
+  }
+}
+
+async function sendReminders(): Promise<void> {
+  logger.info("Checking for pending submissions...");
+
+  try {
+    const enabledUsers = await EnabledUser.find({ 
+      enabled: true,
+      slackUserId: { $ne: null },
+    });
+    
+    const slackUserIds = enabledUsers
+      .filter((u) => u.slackUserId)
+      .map((u) => u.slackUserId!);
+
+    const pendingUserIds = await historyService.getPendingUsers(slackUserIds);
+    
+    logger.info({ pendingCount: pendingUserIds.length }, "Found pending users");
+
+    for (const slackUserId of pendingUserIds) {
+      try {
+        await slackService.sendReminder(slackUserId);
+      } catch (error) {
+        logger.error({ error, slackUserId }, "Failed to send reminder");
+      }
+    }
+  } catch (error) {
+    logger.error({ error }, "Failed to send reminders");
   }
 }
 
@@ -52,11 +81,12 @@ export async function getScheduleSettings(): Promise<{
   cronSchedule: string;
   timezone: string;
   nextRun: string | null;
+  reminderEnabled: boolean;
 }> {
   const cronSchedule = await getSetting("cronSchedule", env.cronSchedule);
   const timezone = await getSetting("timezone", "UTC");
+  const reminderEnabled = (await getSetting("reminderEnabled", "true")) === "true";
   
-  // Calculate next run time
   let nextRun: string | null = null;
   try {
     nextRun = getNextCronRun(cronSchedule, timezone);
@@ -64,7 +94,7 @@ export async function getScheduleSettings(): Promise<{
     nextRun = null;
   }
 
-  return { cronSchedule, timezone, nextRun };
+  return { cronSchedule, timezone, nextRun, reminderEnabled };
 }
 
 export async function updateSchedule(
@@ -94,11 +124,10 @@ export async function updateSchedule(
 }
 
 function getNextCronRun(cronExpression: string, timezone: string): string {
-  // Parse cron and calculate next run
   const parts = cronExpression.split(" ");
   if (parts.length !== 5) return "Invalid cron";
 
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  const [minute, hour, , , dayOfWeek] = parts;
   
   const now = new Date();
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -111,15 +140,13 @@ function getNextCronRun(cronExpression: string, timezone: string): string {
     hour12: false,
   });
 
-  // Simple next run calculation for common patterns
   const nowInTz = new Date(formatter.format(now));
   const targetHour = hour === "*" ? nowInTz.getHours() : parseInt(hour);
   const targetMinute = minute === "*" ? 0 : parseInt(minute);
 
-  let nextRun = new Date(nowInTz);
+  const nextRun = new Date(nowInTz);
   nextRun.setHours(targetHour, targetMinute, 0, 0);
 
-  // If time has passed today, move to next valid day
   if (nextRun <= nowInTz) {
     nextRun.setDate(nextRun.getDate() + 1);
   }
@@ -142,48 +169,60 @@ function getNextCronRun(cronExpression: string, timezone: string): string {
   });
 }
 
+function calculateReminderCron(dailyCron: string, delayHours: number): string {
+  const parts = dailyCron.split(" ");
+  if (parts.length !== 5) return dailyCron;
+
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  
+  if (hour === "*") return dailyCron;
+  
+  const reminderHour = (parseInt(hour) + delayHours) % 24;
+  return `${minute} ${reminderHour} ${dayOfMonth} ${month} ${dayOfWeek}`;
+}
+
 async function restartScheduler(): Promise<void> {
-  // Stop existing task
-  if (currentTask) {
-    currentTask.stop();
-    console.log("Stopped existing scheduler");
+  // Stop existing tasks
+  if (dailyTask) {
+    dailyTask.stop();
+    logger.info("Stopped daily scheduler");
+  }
+  if (reminderTask) {
+    reminderTask.stop();
+    logger.info("Stopped reminder scheduler");
   }
 
-  // Start new task with updated settings
-  const { cronSchedule, timezone } = await getScheduleSettings();
+  const { cronSchedule, timezone, reminderEnabled } = await getScheduleSettings();
   
-  console.log(`Starting scheduler: ${cronSchedule} (${timezone})`);
-  
-  currentTask = cron.schedule(cronSchedule, sendDailyPrompts, {
-    timezone,
-  });
+  // Start daily prompts task
+  logger.info({ cronSchedule, timezone }, "Starting daily scheduler");
+  dailyTask = cron.schedule(cronSchedule, sendDailyPrompts, { timezone });
+
+  // Start reminder task (X hours after daily prompts)
+  if (reminderEnabled) {
+    const reminderCron = calculateReminderCron(cronSchedule, env.reminderDelayHours);
+    logger.info({ reminderCron, timezone }, "Starting reminder scheduler");
+    reminderTask = cron.schedule(reminderCron, sendReminders, { timezone });
+  }
 }
 
 export async function startScheduler(): Promise<void> {
   await restartScheduler();
   const { cronSchedule, timezone, nextRun } = await getScheduleSettings();
-  console.log(`Scheduler started: ${cronSchedule} (${timezone})`);
-  console.log(`Next run: ${nextRun}`);
+  logger.info({ cronSchedule, timezone, nextRun }, "Scheduler started");
 }
 
-// Common timezones for the UI
-export const COMMON_TIMEZONES = [
-  "UTC",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Paris",
-  "Europe/Berlin",
-  "Asia/Dubai",
-  "Asia/Jerusalem",
-  "Asia/Tokyo",
-  "Asia/Shanghai",
-  "Asia/Singapore",
-  "Australia/Sydney",
-  "Pacific/Auckland",
-];
+export function stopScheduler(): void {
+  if (dailyTask) {
+    dailyTask.stop();
+    dailyTask = null;
+  }
+  if (reminderTask) {
+    reminderTask.stop();
+    reminderTask = null;
+  }
+  logger.info("Scheduler stopped");
+}
 
 // Send daily prompt to a specific user by email
 async function sendDailyPromptForUser(email: string): Promise<{ success: boolean; message: string }> {
@@ -211,10 +250,28 @@ async function sendDailyPromptForUser(email: string): Promise<{ success: boolean
       return { success: true, message: `Sent no-tickets message to ${email}` };
     }
   } catch (error) {
-    console.error(`Failed to trigger for ${email}:`, error);
+    logger.error({ error, email }, "Failed to trigger for user");
     return { success: false, message: String(error) };
   }
 }
 
-// Export for manual triggering
+// Common timezones for the UI
+export const COMMON_TIMEZONES = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Asia/Dubai",
+  "Asia/Jerusalem",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "Asia/Singapore",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
 export { sendDailyPrompts, sendDailyPromptForUser };
