@@ -766,7 +766,7 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Admin-Key': passkey
+            'X-Admin-Key': sessionToken
           },
           body: JSON.stringify({ cronSchedule, timezone })
         });
