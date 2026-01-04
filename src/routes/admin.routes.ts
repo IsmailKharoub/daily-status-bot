@@ -1,5 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import path from "path";
+import { authenticator } from "otplib";
+import * as QRCode from "qrcode";
 import { env } from "../config/env";
 import { userService } from "../services";
 import {
@@ -11,16 +13,79 @@ import {
 
 const router = Router();
 
-// Auth middleware - checks X-Admin-Key header or ?key= query param
+// Store valid tokens temporarily (valid for 5 minutes after verification)
+const validSessions = new Map<string, number>();
+const SESSION_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Clean up expired sessions periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, expiry] of validSessions) {
+    if (now > expiry) validSessions.delete(token);
+  }
+}, 60 * 1000);
+
+// Auth middleware - verifies TOTP code or valid session token
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const key = req.headers["x-admin-key"] || req.query.key;
+  const token = req.headers["x-admin-key"] as string || req.query.key as string;
   
-  if (key !== env.adminPasskey) {
-    res.status(401).json({ error: "Unauthorized" });
+  // Check if it's a valid session token
+  if (token && validSessions.has(token)) {
+    const expiry = validSessions.get(token)!;
+    if (Date.now() < expiry) {
+      // Extend session on activity
+      validSessions.set(token, Date.now() + SESSION_DURATION);
+      return next();
+    }
+    validSessions.delete(token);
+  }
+  
+  res.status(401).json({ error: "Unauthorized" });
+}
+
+// Verify TOTP and create session
+router.post("/api/auth", (req: Request, res: Response) => {
+  const { code } = req.body;
+  
+  if (!code || typeof code !== "string") {
+    res.status(400).json({ error: "Code required" });
     return;
   }
-  next();
-}
+  
+  const isValid = authenticator.verify({
+    token: code,
+    secret: env.adminTotpSecret,
+  });
+  
+  if (isValid) {
+    // Generate session token
+    const sessionToken = authenticator.generateSecret();
+    validSessions.set(sessionToken, Date.now() + SESSION_DURATION);
+    res.json({ success: true, token: sessionToken });
+  } else {
+    res.status(401).json({ error: "Invalid code" });
+  }
+});
+
+// QR code for authenticator app setup (only accessible with a setup key)
+router.get("/api/setup-qr", async (req: Request, res: Response) => {
+  const setupKey = req.query.setupKey as string;
+  
+  // Use first 8 chars of TOTP secret as setup key for security
+  if (!setupKey || setupKey !== env.adminTotpSecret.substring(0, 8)) {
+    res.status(401).json({ error: "Invalid setup key" });
+    return;
+  }
+  
+  const otpauth = authenticator.keyuri("admin", "DailyBot", env.adminTotpSecret);
+  
+  try {
+    const qrDataUrl = await QRCode.toDataURL(otpauth);
+    res.json({ qrCode: qrDataUrl, secret: env.adminTotpSecret });
+  } catch {
+    res.status(500).json({ error: "Failed to generate QR code" });
+  }
+});
 
 // Serve admin UI
 router.get("/", (_req: Request, res: Response) => {

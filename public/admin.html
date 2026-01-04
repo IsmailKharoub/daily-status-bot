@@ -426,9 +426,9 @@
   <div class="login-overlay" id="loginOverlay">
     <div class="login-box">
       <h2>Daily Bot Admin</h2>
-      <input type="password" id="passkeyInput" placeholder="Enter passkey" autofocus>
+      <input type="text" id="totpInput" placeholder="6-digit code" maxlength="6" pattern="[0-9]*" inputmode="numeric" autofocus autocomplete="one-time-code">
       <button onclick="login()">Authenticate</button>
-      <div class="login-error hidden" id="loginError">Invalid passkey</div>
+      <div class="login-error hidden" id="loginError">Invalid code</div>
     </div>
   </div>
 
@@ -499,15 +499,22 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    let passkey = localStorage.getItem('adminPasskey') || '';
+    let sessionToken = sessionStorage.getItem('adminToken') || '';
     
     // Check if already authenticated
-    if (passkey) {
+    if (sessionToken) {
       checkAuth();
     }
     
-    document.getElementById('passkeyInput').addEventListener('keypress', (e) => {
+    document.getElementById('totpInput').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') login();
+    });
+    
+    // Auto-submit when 6 digits entered
+    document.getElementById('totpInput').addEventListener('input', (e) => {
+      if (e.target.value.length === 6) {
+        login();
+      }
     });
     
     document.getElementById('newUserEmail').addEventListener('keypress', (e) => {
@@ -517,51 +524,61 @@
     async function checkAuth() {
       try {
         const res = await fetch('/admin/api/users', {
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         if (res.ok) {
           showMain();
           loadUsers();
         } else {
-          localStorage.removeItem('adminPasskey');
-          passkey = '';
+          sessionStorage.removeItem('adminToken');
+          sessionToken = '';
         }
       } catch {
-        localStorage.removeItem('adminPasskey');
-        passkey = '';
+        sessionStorage.removeItem('adminToken');
+        sessionToken = '';
       }
     }
     
     async function login() {
-      const input = document.getElementById('passkeyInput');
+      const input = document.getElementById('totpInput');
       const error = document.getElementById('loginError');
-      passkey = input.value;
+      const code = input.value.trim();
+      
+      if (code.length !== 6) return;
       
       try {
-        const res = await fetch('/admin/api/users', {
-          headers: { 'X-Admin-Key': passkey }
+        const res = await fetch('/admin/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
         });
         
-        if (res.ok) {
-          localStorage.setItem('adminPasskey', passkey);
+        const data = await res.json();
+        
+        if (res.ok && data.token) {
+          sessionToken = data.token;
+          sessionStorage.setItem('adminToken', sessionToken);
           error.classList.add('hidden');
           showMain();
           loadUsers();
         } else {
+          error.textContent = data.error || 'Invalid code';
           error.classList.remove('hidden');
           input.value = '';
+          input.focus();
         }
       } catch {
+        error.textContent = 'Connection error';
         error.classList.remove('hidden');
       }
     }
     
     function logout() {
-      localStorage.removeItem('adminPasskey');
-      passkey = '';
+      sessionStorage.removeItem('adminToken');
+      sessionToken = '';
       document.getElementById('loginOverlay').classList.remove('hidden');
       document.getElementById('mainContent').classList.add('hidden');
-      document.getElementById('passkeyInput').value = '';
+      document.getElementById('totpInput').value = '';
     }
     
     function showMain() {
@@ -576,7 +593,7 @@
       
       try {
         const res = await fetch('/admin/api/users', {
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         const users = await res.json();
         
@@ -654,7 +671,7 @@
       try {
         const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}`, {
           method: 'DELETE',
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         
         if (res.ok) {
@@ -672,7 +689,7 @@
       try {
         const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}/toggle`, {
           method: 'POST',
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         
         if (res.ok) {
@@ -691,7 +708,7 @@
       try {
         const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}/refresh`, {
           method: 'POST',
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         
         if (res.ok) {
@@ -716,7 +733,7 @@
     async function loadSchedule() {
       try {
         const res = await fetch('/admin/api/schedule', {
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         const data = await res.json();
         
@@ -771,7 +788,7 @@
       try {
         const res = await fetch('/admin/api/trigger', {
           method: 'POST',
-          headers: { 'X-Admin-Key': passkey }
+          headers: { 'X-Admin-Key': sessionToken }
         });
         
         if (res.ok) {

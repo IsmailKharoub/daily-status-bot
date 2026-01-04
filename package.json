@@ -25,12 +25,15 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "mongoose": "^8.9.5",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "otplib": "^12.0.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.7",
     "@types/node-cron": "^3.0.11",
+    "@types/qrcode": "^1.5.6",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.3"
   }

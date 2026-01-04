@@ -32,8 +32,8 @@ export const env = {
   get cronSchedule() {
     return optionalEnv("CRON_SCHEDULE", "0 9 * * 1-5");
   },
-  get adminPasskey() {
-    return requireEnv("ADMIN_PASSKEY");
+  get adminTotpSecret() {
+    return requireEnv("ADMIN_TOTP_SECRET");
   },
 };
 
