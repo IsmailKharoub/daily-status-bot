@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   app.use(express.json({ verify: captureRawBody }));
 
   // Serve static files for admin UI
-  app.use("/admin", express.static(path.join(__dirname, "../public")));
+  app.use("/admin", express.static(path.join(process.cwd(), "public")));
 
   // Mount routes
   app.use("/slack", slackRoutes);

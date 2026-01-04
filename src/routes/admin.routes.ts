@@ -50,7 +50,7 @@ router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
 
 // Serve admin UI
 router.get("/", (_req: Request, res: Response) => {
-  const publicPath = path.join(__dirname, "../public/admin.html");
+  const publicPath = path.join(process.cwd(), "public/admin.html");
   res.sendFile(publicPath);
 });
 
