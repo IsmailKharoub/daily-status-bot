@@ -12,9 +12,9 @@ import {
 
 const router = Router();
 
-// Store valid tokens temporarily (valid for 5 minutes after verification)
+// Store valid tokens temporarily (valid for 1 hour after verification)
 const validSessions = new Map<string, number>();
-const SESSION_DURATION = 5 * 60 * 1000; // 5 minutes
+const SESSION_DURATION = 60 * 60 * 1000; // 1 hour
 
 // Clean up expired sessions periodically
 setInterval(() => {
@@ -28,6 +28,8 @@ setInterval(() => {
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const token = req.headers["x-admin-key"] as string || req.query.key as string;
   
+  console.log(`Auth check: ${req.method} ${req.path}, token: ${token ? "present" : "missing"}`);
+  
   // Check if it's a valid session token
   if (token && validSessions.has(token)) {
     const expiry = validSessions.get(token)!;
@@ -36,9 +38,11 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
       validSessions.set(token, Date.now() + SESSION_DURATION);
       return next();
     }
+    console.log("Session expired");
     validSessions.delete(token);
   }
   
+  console.log("Auth failed - unauthorized");
   res.status(401).json({ error: "Unauthorized" });
 }
 
@@ -91,12 +95,14 @@ router.get("/api/users", authMiddleware, async (_req: Request, res: Response) =>
 
 router.post("/api/users", authMiddleware, async (req: Request, res: Response) => {
   try {
+    console.log("Adding user:", req.body);
     const { email } = req.body;
     if (!email) {
       res.status(400).json({ error: "Email required" });
       return;
     }
     const user = await userService.addUser(email);
+    console.log("User added:", user.email);
     res.json({
       email: user.email,
       linearUserId: user.linearUserId,
@@ -104,6 +110,7 @@ router.post("/api/users", authMiddleware, async (req: Request, res: Response) =>
       enabled: user.enabled,
     });
   } catch (error) {
+    console.error("Add user error:", error);
     res.status(400).json({ error: String(error) });
   }
 });
