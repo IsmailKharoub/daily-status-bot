@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
+import { logger } from "../config/logger";
+import { verifySlackRequest } from "../middleware/slack-verify";
 import { slackService, userService, linearService, historyService } from "../services";
-import { sendDailyPrompts } from "../scheduler/daily-prompt";
-import { EnabledUser } from "../models";
+import { sendDailyPrompts, sendDailyPromptForUser } from "../scheduler/daily-prompt";
 
 interface SlackInteractionPayload {
   type: string;
@@ -11,12 +12,29 @@ interface SlackInteractionPayload {
   actions: Array<{
     action_id: string;
     selected_options?: Array<{ value: string }>;
+    value?: string;
   }>;
+  view?: {
+    private_metadata?: string;
+    state?: {
+      values?: Record<string, Record<string, { value?: string }>>;
+    };
+  };
+}
+
+interface SlackCommandPayload {
+  command: string;
+  user_id: string;
+  user_name: string;
+  channel_id: string;
+  text: string;
+  response_url: string;
 }
 
 const router = Router();
 
-router.post("/interactions", async (req: Request, res: Response) => {
+// Slack interactions (button clicks, checkbox changes, modal submissions)
+router.post("/interactions", verifySlackRequest, async (req: Request, res: Response) => {
   try {
     const payload: SlackInteractionPayload = JSON.parse(req.body.payload);
     const slackUserId = payload.user.id;
@@ -24,42 +42,170 @@ router.post("/interactions", async (req: Request, res: Response) => {
     // Acknowledge immediately
     res.status(200).send();
 
+    // Handle view submissions (modals)
+    if (payload.type === "view_submission") {
+      await handleViewSubmission(payload);
+      return;
+    }
+
     for (const action of payload.actions) {
-      if (action.action_id === "select_tickets") {
-        const selectedIds =
-          action.selected_options?.map((opt) => opt.value) ?? [];
-        await slackService.handleTicketSelection(slackUserId, selectedIds);
-      }
+      switch (action.action_id) {
+        case "select_tickets":
+          const selectedIds = action.selected_options?.map((opt) => opt.value) ?? [];
+          await slackService.handleTicketSelection(slackUserId, selectedIds);
+          logger.debug({ slackUserId, count: selectedIds.length }, "Ticket selection updated");
+          break;
 
-      if (action.action_id === "submit_daily_status") {
-        const linearUserId =
-          await userService.getLinearUserIdBySlackId(slackUserId);
+        case "submit_daily_status":
+          const linearUserId = await userService.getLinearUserIdBySlackId(slackUserId);
+          if (linearUserId) {
+            await slackService.handleSubmit(
+              slackUserId,
+              linearUserId,
+              payload.channel.id,
+              payload.message.ts
+            );
+            logger.info({ slackUserId }, "Daily status submitted");
+          } else {
+            logger.error({ slackUserId }, "No Linear mapping found");
+          }
+          break;
 
-        if (linearUserId) {
-          await slackService.handleSubmit(
+        case "skip_daily":
+          await slackService.handleSkip(
             slackUserId,
-            linearUserId,
             payload.channel.id,
-            payload.message.ts
+            payload.message.ts,
+            action.value || "No reason provided"
           );
-        } else {
-          console.error(
-            `No Linear user mapping found for Slack user ${slackUserId}`
-          );
-        }
+          logger.info({ slackUserId }, "Daily skipped");
+          break;
+
+        case "add_notes":
+          await slackService.openNotesModal(slackUserId, payload);
+          break;
       }
     }
   } catch (error) {
-    console.error("Error handling Slack interaction:", error);
-    // Don't send error response as we already acknowledged
+    logger.error({ error }, "Error handling Slack interaction");
   }
 });
+
+async function handleViewSubmission(payload: SlackInteractionPayload): Promise<void> {
+  const slackUserId = payload.user.id;
+  const metadata = JSON.parse(payload.view?.private_metadata || "{}");
+  const values = payload.view?.state?.values || {};
+
+  // Extract notes from the modal
+  const notes = values.notes_block?.notes_input?.value || "";
+  const blockers = values.blockers_block?.blockers_input?.value || "";
+
+  const linearUserId = await userService.getLinearUserIdBySlackId(slackUserId);
+  if (linearUserId) {
+    await slackService.handleSubmitWithNotes(
+      slackUserId,
+      linearUserId,
+      metadata.channelId,
+      metadata.messageTs,
+      notes,
+      blockers
+    );
+    logger.info({ slackUserId, hasNotes: !!notes, hasBlockers: !!blockers }, "Status submitted with notes");
+  }
+}
+
+// Slash commands
+router.post("/commands", verifySlackRequest, async (req: Request, res: Response) => {
+  try {
+    const payload: SlackCommandPayload = req.body;
+    const { command, user_id, text } = payload;
+
+    logger.info({ command, user_id, text }, "Slash command received");
+
+    switch (command) {
+      case "/daily":
+        await handleDailyCommand(user_id, text, res);
+        break;
+      case "/skip":
+        await handleSkipCommand(user_id, text, res);
+        break;
+      default:
+        res.json({ response_type: "ephemeral", text: `Unknown command: ${command}` });
+    }
+  } catch (error) {
+    logger.error({ error }, "Error handling slash command");
+    res.json({ response_type: "ephemeral", text: "Something went wrong. Please try again." });
+  }
+});
+
+async function handleDailyCommand(userId: string, text: string, res: Response): Promise<void> {
+  // Check if user is registered
+  const linearUserId = await userService.getLinearUserIdBySlackId(userId);
+  if (!linearUserId) {
+    res.json({
+      response_type: "ephemeral",
+      text: "You're not registered for daily standups. Ask your admin to add you.",
+    });
+    return;
+  }
+
+  if (text === "status") {
+    // Show today's status
+    const status = await historyService.getTodayStatus(userId);
+    if (status) {
+      const ticketList = status.selectedTickets
+        .map((t) => `• <${t.url}|${t.identifier}> ${t.title}`)
+        .join("\n");
+      res.json({
+        response_type: "ephemeral",
+        text: `*Your focus today:*\n${ticketList || "_No tickets selected_"}`,
+      });
+    } else {
+      res.json({
+        response_type: "ephemeral",
+        text: "You haven't submitted your daily status yet. Use `/daily` to get started.",
+      });
+    }
+    return;
+  }
+
+  // Send the daily prompt
+  res.json({
+    response_type: "ephemeral",
+    text: "📋 Fetching your tickets...",
+  });
+
+  const [tickets, yesterdayStatus] = await Promise.all([
+    linearService.getIncompleteTicketsForUser(linearUserId),
+    historyService.getYesterdayStatus(userId),
+  ]);
+
+  await slackService.sendTicketSelectionDM(userId, tickets, yesterdayStatus);
+}
+
+async function handleSkipCommand(userId: string, text: string, res: Response): Promise<void> {
+  const linearUserId = await userService.getLinearUserIdBySlackId(userId);
+  if (!linearUserId) {
+    res.json({
+      response_type: "ephemeral",
+      text: "You're not registered for daily standups.",
+    });
+    return;
+  }
+
+  await historyService.saveSkip(userId, linearUserId, text || "Skipped via command");
+  
+  res.json({
+    response_type: "ephemeral",
+    text: `✓ Skipped today's standup${text ? `: ${text}` : ""}`,
+  });
+}
 
 // Debug endpoint - fetch tickets without sending Slack message
 router.get("/debug/:email", async (req: Request, res: Response) => {
   try {
     const email = req.params.email.toLowerCase();
-    console.log(`Debug: fetching tickets for ${email}...`);
+    logger.debug({ email }, "Debug: fetching tickets");
 
     const linearUsers = await linearService.getAllUsers();
     const linearUser = linearUsers.find(
@@ -87,78 +233,45 @@ router.get("/debug/:email", async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
-    console.error("Debug failed:", error);
+    logger.error({ error }, "Debug failed");
     res.status(500).json({ status: "error", message: String(error) });
   }
 });
 
-// Manual trigger - send to all enabled users
+// Manual trigger - send to all enabled users (unprotected for testing)
 router.post("/trigger", async (_req: Request, res: Response) => {
   try {
-    console.log("Manual trigger: sending daily prompts to all enabled users...");
+    logger.info("Manual trigger: sending daily prompts to all enabled users");
     await sendDailyPrompts();
     res.json({ status: "ok", message: "Daily prompts sent to all enabled users" });
   } catch (error) {
-    console.error("Manual trigger failed:", error);
+    logger.error({ error }, "Manual trigger failed");
     res.status(500).json({ status: "error", message: String(error) });
   }
 });
 
-// Manual trigger - send to specific user by email (must be in enabled users list)
+// Manual trigger - send to specific user by email
 router.post("/trigger/:email", async (req: Request, res: Response) => {
   try {
     const email = req.params.email.toLowerCase();
-    console.log(`Manual trigger: sending daily prompt to ${email}...`);
+    logger.info({ email }, "Manual trigger for user");
 
-    // Get enabled users and find this one
-    const enabledUsers = await userService.getEnabledUsers();
+    const result = await sendDailyPromptForUser(email);
     
-    // Find the user's Linear ID by checking the enabled users
-    let linearUserId: string | null = null;
-    let slackUserId: string | null = null;
-    
-    for (const [linId, slackId] of enabledUsers) {
-      // We need to check email - let's look it up
-      const linearUsers = await linearService.getAllUsers();
-      const linearUser = linearUsers.find((u) => u.id === linId);
-      if (linearUser?.email?.toLowerCase() === email) {
-        linearUserId = linId;
-        slackUserId = slackId;
-        break;
-      }
+    if (result.success) {
+      res.json({ status: "ok", ...result });
+    } else {
+      res.status(404).json({ status: "error", message: result.message });
     }
-
-    if (!linearUserId || !slackUserId) {
-      res.status(404).json({ 
-        status: "error", 
-        message: `User ${email} not found in enabled users. Add them first via POST /users` 
-      });
-      return;
-    }
-
-    const [tickets, yesterdayStatus] = await Promise.all([
-      linearService.getIncompleteTicketsForUser(linearUserId),
-      historyService.getYesterdayStatus(slackUserId),
-    ]);
-
-    await slackService.sendTicketSelectionDM(slackUserId, tickets, yesterdayStatus);
-
-    res.json({
-      status: "ok",
-      message: `Daily prompt sent to ${email}`,
-      ticketCount: tickets.length,
-      hasYesterdayStatus: !!yesterdayStatus,
-    });
   } catch (error) {
-    console.error("Manual trigger failed:", error);
+    logger.error({ error }, "Manual trigger failed");
     res.status(500).json({ status: "error", message: String(error) });
   }
 });
 
 // Health check endpoint
 router.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 export const slackRoutes = router;
-

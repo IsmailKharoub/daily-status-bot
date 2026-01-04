@@ -1,9 +1,10 @@
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response } from "express";
 import path from "path";
-import { authenticator } from "otplib";
-import { env } from "../config/env";
+import { logger } from "../config/logger";
+import { verifyJWT, generateToken, verifyTOTP } from "../middleware/auth";
+import { authLimiter, apiLimiter } from "../middleware/rate-limit";
 import { userService } from "../services";
-import { getSetting, setSetting } from "../models";
+import { getSetting, setSetting, DailyStatus, EnabledUser } from "../models";
 import {
   getScheduleSettings,
   updateSchedule,
@@ -11,67 +12,41 @@ import {
   sendDailyPromptForUser,
   COMMON_TIMEZONES,
 } from "../scheduler/daily-prompt";
+import {
+  authSchema,
+  addUserSchema,
+  scheduleSchema,
+  settingsSchema,
+} from "../validation";
 
 const router = Router();
 
-// Store valid tokens temporarily (valid for 1 hour after verification)
-const validSessions = new Map<string, number>();
-const SESSION_DURATION = 60 * 60 * 1000; // 1 hour
-
-// Clean up expired sessions periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, expiry] of validSessions) {
-    if (now > expiry) validSessions.delete(token);
-  }
-}, 60 * 1000);
-
-// Auth middleware - verifies TOTP code or valid session token
-function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const token = req.headers["x-admin-key"] as string || req.query.key as string;
-  
-  console.log(`Auth check: ${req.method} ${req.path}, token: ${token ? "present" : "missing"}`);
-  
-  // Check if it's a valid session token
-  if (token && validSessions.has(token)) {
-    const expiry = validSessions.get(token)!;
-    if (Date.now() < expiry) {
-      // Extend session on activity
-      validSessions.set(token, Date.now() + SESSION_DURATION);
-      return next();
-    }
-    console.log("Session expired");
-    validSessions.delete(token);
-  }
-  
-  console.log("Auth failed - unauthorized");
-  res.status(401).json({ error: "Unauthorized" });
+// Helper for date operations
+function getStartOfDay(date: Date): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return start;
 }
 
-// Verify TOTP and create session
-router.post("/api/auth", (req: Request, res: Response) => {
-  const { code } = req.body;
-  
-  if (!code || typeof code !== "string") {
-    res.status(400).json({ error: "Code required" });
+// Verify TOTP and issue JWT
+router.post("/api/auth", authLimiter, (req: Request, res: Response) => {
+  const result = authSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0].message });
     return;
   }
+
+  const { code } = result.data;
   
-  const isValid = authenticator.verify({
-    token: code,
-    secret: env.adminTotpSecret,
-  });
-  
-  if (isValid) {
-    // Generate session token
-    const sessionToken = authenticator.generateSecret();
-    validSessions.set(sessionToken, Date.now() + SESSION_DURATION);
-    res.json({ success: true, token: sessionToken });
+  if (verifyTOTP(code)) {
+    const token = generateToken();
+    logger.info("Admin authenticated successfully");
+    res.json({ success: true, token });
   } else {
+    logger.warn("Failed admin authentication attempt");
     res.status(401).json({ error: "Invalid code" });
   }
 });
-
 
 // Serve admin UI
 router.get("/", (_req: Request, res: Response) => {
@@ -79,8 +54,11 @@ router.get("/", (_req: Request, res: Response) => {
   res.sendFile(publicPath);
 });
 
-// API routes (all require auth)
-router.get("/api/users", authMiddleware, async (_req: Request, res: Response) => {
+// Apply rate limiting and JWT verification to all API routes below
+router.use("/api", apiLimiter);
+
+// API routes (all require auth except /auth)
+router.get("/api/users", verifyJWT, async (_req: Request, res: Response) => {
   try {
     const users = await userService.listUsers();
     res.json(users.map((u) => ({
@@ -91,20 +69,23 @@ router.get("/api/users", authMiddleware, async (_req: Request, res: Response) =>
       createdAt: u.createdAt,
     })));
   } catch (error) {
+    logger.error({ error }, "Failed to list users");
     res.status(500).json({ error: String(error) });
   }
 });
 
-router.post("/api/users", authMiddleware, async (req: Request, res: Response) => {
+router.post("/api/users", verifyJWT, async (req: Request, res: Response) => {
+  const result = addUserSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0].message });
+    return;
+  }
+
   try {
-    console.log("Adding user:", req.body);
-    const { email } = req.body;
-    if (!email) {
-      res.status(400).json({ error: "Email required" });
-      return;
-    }
+    const { email } = result.data;
+    logger.info({ email }, "Adding user");
     const user = await userService.addUser(email);
-    console.log("User added:", user.email);
+    logger.info({ email: user.email }, "User added successfully");
     res.json({
       email: user.email,
       linearUserId: user.linearUserId,
@@ -112,25 +93,27 @@ router.post("/api/users", authMiddleware, async (req: Request, res: Response) =>
       enabled: user.enabled,
     });
   } catch (error) {
-    console.error("Add user error:", error);
+    logger.error({ error }, "Failed to add user");
     res.status(400).json({ error: String(error) });
   }
 });
 
-router.delete("/api/users/:email", authMiddleware, async (req: Request, res: Response) => {
+router.delete("/api/users/:email", verifyJWT, async (req: Request, res: Response) => {
   try {
     const removed = await userService.removeUser(req.params.email);
     if (removed) {
+      logger.info({ email: req.params.email }, "User removed");
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "User not found" });
     }
   } catch (error) {
+    logger.error({ error }, "Failed to remove user");
     res.status(500).json({ error: String(error) });
   }
 });
 
-router.post("/api/users/:email/toggle", authMiddleware, async (req: Request, res: Response) => {
+router.post("/api/users/:email/toggle", verifyJWT, async (req: Request, res: Response) => {
   try {
     const users = await userService.listUsers();
     const user = users.find((u) => u.email === req.params.email.toLowerCase());
@@ -139,16 +122,19 @@ router.post("/api/users/:email/toggle", authMiddleware, async (req: Request, res
       return;
     }
     const updated = await userService.setUserEnabled(req.params.email, !user.enabled);
+    logger.info({ email: req.params.email, enabled: updated?.enabled }, "User toggled");
     res.json({ enabled: updated?.enabled });
   } catch (error) {
+    logger.error({ error }, "Failed to toggle user");
     res.status(500).json({ error: String(error) });
   }
 });
 
-router.post("/api/users/:email/refresh", authMiddleware, async (req: Request, res: Response) => {
+router.post("/api/users/:email/refresh", verifyJWT, async (req: Request, res: Response) => {
   try {
     const user = await userService.refreshUser(req.params.email);
     if (user) {
+      logger.info({ email: req.params.email }, "User refreshed");
       res.json({
         email: user.email,
         linearUserId: user.linearUserId,
@@ -158,12 +144,13 @@ router.post("/api/users/:email/refresh", authMiddleware, async (req: Request, re
       res.status(404).json({ error: "User not found" });
     }
   } catch (error) {
+    logger.error({ error }, "Failed to refresh user");
     res.status(500).json({ error: String(error) });
   }
 });
 
 // Schedule management
-router.get("/api/schedule", authMiddleware, async (_req: Request, res: Response) => {
+router.get("/api/schedule", verifyJWT, async (_req: Request, res: Response) => {
   try {
     const settings = await getScheduleSettings();
     res.json({
@@ -171,47 +158,52 @@ router.get("/api/schedule", authMiddleware, async (_req: Request, res: Response)
       timezones: COMMON_TIMEZONES,
     });
   } catch (error) {
+    logger.error({ error }, "Failed to get schedule");
     res.status(500).json({ error: String(error) });
   }
 });
 
-router.post("/api/schedule", authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const { cronSchedule, timezone } = req.body;
-    
-    if (!cronSchedule || !timezone) {
-      res.status(400).json({ error: "cronSchedule and timezone are required" });
-      return;
-    }
+router.post("/api/schedule", verifyJWT, async (req: Request, res: Response) => {
+  const result = scheduleSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0].message });
+    return;
+  }
 
-    const result = await updateSchedule(cronSchedule, timezone);
+  try {
+    const { cronSchedule, timezone } = result.data;
+    const updateResult = await updateSchedule(cronSchedule, timezone);
     
-    if (result.success) {
+    if (updateResult.success) {
+      logger.info({ cronSchedule, timezone }, "Schedule updated");
       const settings = await getScheduleSettings();
       res.json(settings);
     } else {
-      res.status(400).json({ error: result.error });
+      res.status(400).json({ error: updateResult.error });
     }
   } catch (error) {
+    logger.error({ error }, "Failed to update schedule");
     res.status(500).json({ error: String(error) });
   }
 });
 
 // Manual trigger (all users)
-router.post("/api/trigger", authMiddleware, async (_req: Request, res: Response) => {
+router.post("/api/trigger", verifyJWT, async (_req: Request, res: Response) => {
   try {
-    // Run in background, respond immediately
-    sendDailyPrompts().catch(console.error);
+    logger.info("Manual trigger: sending daily prompts to all users");
+    sendDailyPrompts().catch((err) => logger.error({ err }, "Daily prompts failed"));
     res.json({ success: true, message: "Daily prompts triggered" });
   } catch (error) {
+    logger.error({ error }, "Failed to trigger daily prompts");
     res.status(500).json({ error: String(error) });
   }
 });
 
 // Manual trigger for specific user
-router.post("/api/trigger/:email", authMiddleware, async (req: Request, res: Response) => {
+router.post("/api/trigger/:email", verifyJWT, async (req: Request, res: Response) => {
   try {
     const { email } = req.params;
+    logger.info({ email }, "Manual trigger for user");
     const result = await sendDailyPromptForUser(email);
     
     if (result.success) {
@@ -220,32 +212,115 @@ router.post("/api/trigger/:email", authMiddleware, async (req: Request, res: Res
       res.status(400).json({ error: result.message });
     }
   } catch (error) {
+    logger.error({ error }, "Failed to trigger for user");
     res.status(500).json({ error: String(error) });
   }
 });
 
 // Settings management
-router.get("/api/settings", authMiddleware, async (_req: Request, res: Response) => {
+router.get("/api/settings", verifyJWT, async (_req: Request, res: Response) => {
   try {
-    const channelId = await getSetting("slackDailyChannelId", env.slackDailyChannelId);
+    const channelId = await getSetting("slackDailyChannelId", "");
     res.json({ channelId });
   } catch (error) {
+    logger.error({ error }, "Failed to get settings");
     res.status(500).json({ error: String(error) });
   }
 });
 
-router.post("/api/settings", authMiddleware, async (req: Request, res: Response) => {
+router.post("/api/settings", verifyJWT, async (req: Request, res: Response) => {
+  const result = settingsSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ error: result.error.issues[0].message });
+    return;
+  }
+
   try {
-    const { channelId } = req.body;
-    if (channelId !== undefined) {
-      await setSetting("slackDailyChannelId", channelId);
-      console.log(`Updated channel ID to: ${channelId}`);
-    }
+    const { channelId } = result.data;
+    await setSetting("slackDailyChannelId", channelId);
+    logger.info({ channelId }, "Channel ID updated");
     res.json({ success: true });
   } catch (error) {
+    logger.error({ error }, "Failed to update settings");
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// Team status dashboard
+router.get("/api/status/today", verifyJWT, async (_req: Request, res: Response) => {
+  try {
+    const today = getStartOfDay(new Date());
+    const [statuses, enabledUsers] = await Promise.all([
+      DailyStatus.find({ date: today }),
+      EnabledUser.find({ enabled: true }),
+    ]);
+
+    const submittedIds = new Set(statuses.map((s) => s.slackUserId));
+    
+    const submitted = statuses.map((s) => {
+      const user = enabledUsers.find((u) => u.slackUserId === s.slackUserId);
+      return {
+        email: user?.email || "unknown",
+        ticketCount: s.selectedTickets.length,
+        submittedAt: s.submittedAt,
+        tickets: s.selectedTickets,
+      };
+    });
+
+    const pending = enabledUsers
+      .filter((u) => u.slackUserId && !submittedIds.has(u.slackUserId))
+      .map((u) => ({ email: u.email }));
+
+    res.json({
+      date: today.toISOString().split("T")[0],
+      submitted,
+      pending,
+      stats: {
+        total: enabledUsers.length,
+        submittedCount: submitted.length,
+        pendingCount: pending.length,
+      },
+    });
+  } catch (error) {
+    logger.error({ error }, "Failed to get today's status");
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// Status history for a user
+router.get("/api/status/:email/history", verifyJWT, async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const days = parseInt(req.query.days as string) || 7;
+    
+    const user = await EnabledUser.findOne({ email: email.toLowerCase() });
+    if (!user || !user.slackUserId) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const history = await DailyStatus.find({
+      slackUserId: user.slackUserId,
+      date: { $gte: getStartOfDay(startDate) },
+    }).sort({ date: -1 });
+
+    res.json({
+      email,
+      days,
+      history: history.map((h) => ({
+        date: h.date.toISOString().split("T")[0],
+        ticketCount: h.selectedTickets.length,
+        tickets: h.selectedTickets,
+        submittedAt: h.submittedAt,
+      })),
+    });
+  } catch (error) {
+    logger.error({ error }, "Failed to get user history");
     res.status(500).json({ error: String(error) });
   }
 });
 
 export const adminRoutes = router;
-
