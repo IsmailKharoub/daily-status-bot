@@ -32,7 +32,7 @@
     }
     
     .container {
-      max-width: 900px;
+      max-width: 1000px;
       margin: 0 auto;
       padding: 2rem;
     }
@@ -125,6 +125,42 @@
       font-size: 0.75rem;
     }
     
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+    
+    .tab {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    
+    .tab:hover {
+      color: var(--text);
+      background: var(--surface);
+    }
+    
+    .tab.active {
+      color: var(--accent);
+      background: var(--surface);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
     .add-user {
       display: flex;
       gap: 0.5rem;
@@ -140,6 +176,7 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
+      margin-bottom: 1.5rem;
     }
     
     .card-header {
@@ -155,7 +192,7 @@
     }
     
     .user-list {
-      max-height: 500px;
+      max-height: 400px;
       overflow-y: auto;
     }
     
@@ -186,6 +223,7 @@
       color: var(--text-dim);
       display: flex;
       gap: 0.75rem;
+      flex-wrap: wrap;
     }
     
     .badge {
@@ -314,21 +352,6 @@
     
     .hidden { display: none !important; }
     
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-    
-    @media (max-width: 640px) {
-      .grid-2 { grid-template-columns: 1fr; }
-    }
-    
-    .schedule-card {
-      margin-bottom: 1.5rem;
-    }
-    
     .schedule-content {
       padding: 1rem;
     }
@@ -419,6 +442,79 @@
       color: var(--text-dim);
       margin-top: 0.25rem;
     }
+    
+    /* Dashboard styles */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    
+    .stat-value.success {
+      color: var(--success);
+    }
+    
+    .stat-value.warning {
+      color: var(--warning);
+    }
+    
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+    
+    .status-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: 1fr; }
+      .status-list { grid-template-columns: 1fr; }
+    }
+    
+    .status-item {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .status-item:last-child {
+      border-bottom: none;
+    }
+    
+    .status-email {
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+    
+    .status-meta {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+    
+    .status-tickets {
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      padding-left: 1rem;
+      color: var(--text-dim);
+    }
   </style>
 </head>
 <body>
@@ -439,75 +535,126 @@
       <button class="btn-secondary btn-small" onclick="logout()">Logout</button>
     </header>
 
-    <!-- Schedule Card -->
-    <div class="card schedule-card">
-      <div class="card-header">
-        <span>Schedule</span>
-        <div class="trigger-section">
-          <button class="btn-trigger btn-small" onclick="triggerNow()">Trigger Now</button>
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('dashboard')">Dashboard</button>
+      <button class="tab" onclick="switchTab('users')">Users</button>
+      <button class="tab" onclick="switchTab('settings')">Settings</button>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div class="tab-content active" id="tab-dashboard">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="statTotal">-</div>
+          <div class="stat-label">Total Users</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value success" id="statSubmitted">-</div>
+          <div class="stat-label">Submitted</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value warning" id="statPending">-</div>
+          <div class="stat-label">Pending</div>
         </div>
       </div>
-      <div class="schedule-content">
-        <div class="schedule-info">
-          <div class="schedule-row">
-            <span class="schedule-label">Next Run</span>
-            <span class="schedule-value next-run" id="nextRun">Loading...</span>
+
+      <div class="status-list">
+        <div class="card">
+          <div class="card-header">
+            <span>Submitted Today</span>
+            <span id="submittedCount">0</span>
           </div>
-          <div class="schedule-row">
-            <span class="schedule-label">Current Schedule</span>
-            <span class="schedule-value" id="currentCron">Loading...</span>
-          </div>
-          <div class="schedule-row">
-            <span class="schedule-label">Timezone</span>
-            <span class="schedule-value" id="currentTimezone">Loading...</span>
+          <div class="user-list" id="submittedList">
+            <div class="empty-state">Loading...</div>
           </div>
         </div>
-        <div class="schedule-form">
-          <div class="form-row">
-            <label>Cron</label>
-            <input type="text" id="cronInput" placeholder="0 9 * * 1-5">
+
+        <div class="card">
+          <div class="card-header">
+            <span>Pending</span>
+            <span id="pendingCount">0</span>
           </div>
-          <div class="cron-help">Format: minute hour day-of-month month day-of-week (e.g., "0 9 * * 1-5" = 9 AM Mon-Fri)</div>
-          <div class="form-row">
-            <label>Timezone</label>
-            <select id="timezoneSelect"></select>
+          <div class="user-list" id="pendingList">
+            <div class="empty-state">Loading...</div>
           </div>
-          <button onclick="updateSchedule()">Update Schedule</button>
         </div>
       </div>
     </div>
 
-    <!-- Settings Card -->
-    <div class="card schedule-card">
-      <div class="card-header">
-        <span>Settings</span>
+    <!-- Users Tab -->
+    <div class="tab-content" id="tab-users">
+      <div class="add-user">
+        <input type="email" id="newUserEmail" placeholder="user@company.com">
+        <button onclick="addUser()">Add User</button>
       </div>
-      <div class="schedule-content">
-        <div class="schedule-form" style="border-top: none; padding-top: 0;">
-          <div class="form-row">
-            <label>Channel ID</label>
-            <input type="text" id="channelIdInput" placeholder="C0XXXXXXXXX">
-          </div>
-          <div class="cron-help">Slack channel ID where daily status is posted (starts with C)</div>
-          <button onclick="updateSettings()">Update Settings</button>
+
+      <div class="card">
+        <div class="card-header">
+          <span>Enabled Users</span>
+          <span id="userCount">0 users</span>
+        </div>
+        <div class="user-list" id="userList">
+          <div class="empty-state">Loading...</div>
         </div>
       </div>
     </div>
 
-    <!-- Add User -->
-    <div class="add-user">
-      <input type="email" id="newUserEmail" placeholder="user@company.com">
-      <button onclick="addUser()">Add User</button>
-    </div>
-
-    <!-- Users Card -->
-    <div class="card">
-      <div class="card-header">
-        <span>Enabled Users</span>
-        <span id="userCount">0 users</span>
+    <!-- Settings Tab -->
+    <div class="tab-content" id="tab-settings">
+      <!-- Schedule Card -->
+      <div class="card">
+        <div class="card-header">
+          <span>Schedule</span>
+          <div class="trigger-section">
+            <button class="btn-trigger btn-small" onclick="triggerNow()">Trigger Now</button>
+          </div>
+        </div>
+        <div class="schedule-content">
+          <div class="schedule-info">
+            <div class="schedule-row">
+              <span class="schedule-label">Next Run</span>
+              <span class="schedule-value next-run" id="nextRun">Loading...</span>
+            </div>
+            <div class="schedule-row">
+              <span class="schedule-label">Current Schedule</span>
+              <span class="schedule-value" id="currentCron">Loading...</span>
+            </div>
+            <div class="schedule-row">
+              <span class="schedule-label">Timezone</span>
+              <span class="schedule-value" id="currentTimezone">Loading...</span>
+            </div>
+          </div>
+          <div class="schedule-form">
+            <div class="form-row">
+              <label>Cron</label>
+              <input type="text" id="cronInput" placeholder="0 9 * * 1-5">
+            </div>
+            <div class="cron-help">Format: minute hour day-of-month month day-of-week (e.g., "0 9 * * 1-5" = 9 AM Mon-Fri)</div>
+            <div class="form-row">
+              <label>Timezone</label>
+              <select id="timezoneSelect"></select>
+            </div>
+            <button onclick="updateSchedule()">Update Schedule</button>
+          </div>
+        </div>
       </div>
-      <div class="user-list" id="userList">
-        <div class="empty-state">Loading...</div>
+
+      <!-- Settings Card -->
+      <div class="card">
+        <div class="card-header">
+          <span>Channel Settings</span>
+        </div>
+        <div class="schedule-content">
+          <div class="schedule-form" style="border-top: none; padding-top: 0;">
+            <div class="form-row">
+              <label>Channel ID</label>
+              <input type="text" id="channelIdInput" placeholder="C0XXXXXXXXX">
+            </div>
+            <div class="cron-help">Slack channel ID where daily status is posted (starts with C)</div>
+            <button onclick="updateSettings()">Update Settings</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -516,10 +663,10 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    let sessionToken = sessionStorage.getItem('adminToken') || '';
+    let token = localStorage.getItem('dailybot_token') || '';
     
     // Check if already authenticated
-    if (sessionToken) {
+    if (token) {
       checkAuth();
     }
     
@@ -538,21 +685,28 @@
       if (e.key === 'Enter') addUser();
     });
     
+    function getAuthHeaders() {
+      return {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+    }
+    
     async function checkAuth() {
       try {
         const res = await fetch('/admin/api/users', {
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         if (res.ok) {
           showMain();
-          loadUsers();
+          loadAll();
         } else {
-          sessionStorage.removeItem('adminToken');
-          sessionToken = '';
+          localStorage.removeItem('dailybot_token');
+          token = '';
         }
       } catch {
-        sessionStorage.removeItem('adminToken');
-        sessionToken = '';
+        localStorage.removeItem('dailybot_token');
+        token = '';
       }
     }
     
@@ -573,11 +727,11 @@
         const data = await res.json();
         
         if (res.ok && data.token) {
-          sessionToken = data.token;
-          sessionStorage.setItem('adminToken', sessionToken);
+          token = data.token;
+          localStorage.setItem('dailybot_token', token);
           error.classList.add('hidden');
           showMain();
-          loadUsers();
+          loadAll();
         } else {
           error.textContent = data.error || 'Invalid code';
           error.classList.remove('hidden');
@@ -591,8 +745,8 @@
     }
     
     function logout() {
-      sessionStorage.removeItem('adminToken');
-      sessionToken = '';
+      localStorage.removeItem('dailybot_token');
+      token = '';
       document.getElementById('loginOverlay').classList.remove('hidden');
       document.getElementById('mainContent').classList.add('hidden');
       document.getElementById('totpInput').value = '';
@@ -601,8 +755,77 @@
     function showMain() {
       document.getElementById('loginOverlay').classList.add('hidden');
       document.getElementById('mainContent').classList.remove('hidden');
+    }
+    
+    function loadAll() {
+      loadDashboard();
+      loadUsers();
       loadSchedule();
       loadSettings();
+    }
+    
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      
+      document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+      
+      if (tabName === 'dashboard') loadDashboard();
+    }
+    
+    async function loadDashboard() {
+      try {
+        const res = await fetch('/admin/api/status/today', {
+          headers: getAuthHeaders()
+        });
+        const data = await res.json();
+        
+        // Update stats
+        document.getElementById('statTotal').textContent = data.stats.total;
+        document.getElementById('statSubmitted').textContent = data.stats.submittedCount;
+        document.getElementById('statPending').textContent = data.stats.pendingCount;
+        
+        // Update submitted list
+        const submittedList = document.getElementById('submittedList');
+        document.getElementById('submittedCount').textContent = data.submitted.length;
+        
+        if (data.submitted.length === 0) {
+          submittedList.innerHTML = '<div class="empty-state">No submissions yet</div>';
+        } else {
+          submittedList.innerHTML = data.submitted.map(s => `
+            <div class="status-item">
+              <div class="status-email">${s.email}</div>
+              <div class="status-meta">${s.ticketCount} ticket${s.ticketCount !== 1 ? 's' : ''} • ${new Date(s.submittedAt).toLocaleTimeString()}</div>
+              ${s.tickets.length > 0 ? `
+                <div class="status-tickets">
+                  ${s.tickets.slice(0, 3).map(t => `• ${t.identifier}: ${t.title.slice(0, 40)}${t.title.length > 40 ? '...' : ''}`).join('<br>')}
+                  ${s.tickets.length > 3 ? `<br>... and ${s.tickets.length - 3} more` : ''}
+                </div>
+              ` : ''}
+            </div>
+          `).join('');
+        }
+        
+        // Update pending list
+        const pendingList = document.getElementById('pendingList');
+        document.getElementById('pendingCount').textContent = data.pending.length;
+        
+        if (data.pending.length === 0) {
+          pendingList.innerHTML = '<div class="empty-state">All caught up!</div>';
+        } else {
+          pendingList.innerHTML = data.pending.map(p => `
+            <div class="status-item">
+              <div class="status-email">${p.email}</div>
+              <div class="status-meta">
+                <button class="btn-small btn-trigger" onclick="triggerUser('${p.email}')">Send Reminder</button>
+              </div>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard:', err);
+      }
     }
     
     async function loadUsers() {
@@ -611,7 +834,7 @@
       
       try {
         const res = await fetch('/admin/api/users', {
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         const users = await res.json();
         
@@ -665,10 +888,7 @@
       try {
         const res = await fetch('/admin/api/users', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Admin-Key': sessionToken
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ email })
         });
         
@@ -678,6 +898,7 @@
           input.value = '';
           showToast(`Added ${email}`);
           loadUsers();
+          loadDashboard();
         } else {
           showToast(data.error || 'Failed to add user', true);
         }
@@ -692,12 +913,13 @@
       try {
         const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}`, {
           method: 'DELETE',
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         
         if (res.ok) {
           showToast(`Removed ${email}`);
           loadUsers();
+          loadDashboard();
         } else {
           showToast('Failed to remove user', true);
         }
@@ -710,13 +932,14 @@
       try {
         const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}/toggle`, {
           method: 'POST',
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         
         if (res.ok) {
           const data = await res.json();
           showToast(`${email} ${data.enabled ? 'enabled' : 'disabled'}`);
           loadUsers();
+          loadDashboard();
         } else {
           showToast('Failed to toggle user', true);
         }
@@ -729,7 +952,7 @@
       try {
         const res = await fetch(`/admin/api/users/${encodeURIComponent(email)}/refresh`, {
           method: 'POST',
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         
         if (res.ok) {
@@ -747,7 +970,7 @@
       try {
         const res = await fetch(`/admin/api/trigger/${encodeURIComponent(email)}`, {
           method: 'POST',
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         
         const data = await res.json();
@@ -773,7 +996,7 @@
     async function loadSchedule() {
       try {
         const res = await fetch('/admin/api/schedule', {
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         const data = await res.json();
         
@@ -804,10 +1027,7 @@
       try {
         const res = await fetch('/admin/api/schedule', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Admin-Key': sessionToken
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ cronSchedule, timezone })
         });
         
@@ -828,11 +1048,12 @@
       try {
         const res = await fetch('/admin/api/trigger', {
           method: 'POST',
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         
         if (res.ok) {
           showToast('Daily prompts triggered!');
+          setTimeout(() => loadDashboard(), 2000);
         } else {
           showToast('Failed to trigger', true);
         }
@@ -845,7 +1066,7 @@
     async function loadSettings() {
       try {
         const res = await fetch('/admin/api/settings', {
-          headers: { 'X-Admin-Key': sessionToken }
+          headers: getAuthHeaders()
         });
         const data = await res.json();
         
@@ -866,10 +1087,7 @@
       try {
         const res = await fetch('/admin/api/settings', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Admin-Key': sessionToken
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify({ channelId })
         });
         
@@ -883,7 +1101,13 @@
         showToast('Failed to update settings', true);
       }
     }
+    
+    // Auto-refresh dashboard every 30 seconds
+    setInterval(() => {
+      if (token && document.getElementById('tab-dashboard').classList.contains('active')) {
+        loadDashboard();
+      }
+    }, 30000);
   </script>
 </body>
 </html>
-
