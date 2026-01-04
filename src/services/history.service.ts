@@ -1,4 +1,5 @@
 import { DailyStatus, IDailyStatus, ISelectedTicket } from "../models";
+import { logger } from "../config/logger";
 
 class HistoryService {
   private getStartOfDay(date: Date): Date {
@@ -28,12 +29,25 @@ class HistoryService {
     });
   }
 
+  async getTodayStatus(slackUserId: string): Promise<IDailyStatus | null> {
+    const today = this.getStartOfDay(new Date());
+
+    return DailyStatus.findOne({
+      slackUserId,
+      date: today,
+    });
+  }
+
   async saveDailyStatus(
     slackUserId: string,
     linearUserId: string,
-    selectedTickets: ISelectedTicket[]
+    selectedTickets: ISelectedTicket[],
+    notes?: string,
+    blockers?: string
   ): Promise<IDailyStatus> {
     const today = this.getStartOfDay(new Date());
+
+    logger.info({ slackUserId, ticketCount: selectedTickets.length, hasNotes: !!notes }, "Saving daily status");
 
     return DailyStatus.findOneAndUpdate(
       { slackUserId, date: today },
@@ -42,6 +56,36 @@ class HistoryService {
         linearUserId,
         date: today,
         selectedTickets,
+        notes: notes || "",
+        blockers: blockers || "",
+        skipped: false,
+        skipReason: "",
+        submittedAt: new Date(),
+      },
+      { upsert: true, new: true }
+    );
+  }
+
+  async saveSkip(
+    slackUserId: string,
+    linearUserId: string,
+    reason: string
+  ): Promise<IDailyStatus> {
+    const today = this.getStartOfDay(new Date());
+
+    logger.info({ slackUserId, reason }, "Saving skip status");
+
+    return DailyStatus.findOneAndUpdate(
+      { slackUserId, date: today },
+      {
+        slackUserId,
+        linearUserId,
+        date: today,
+        selectedTickets: [],
+        notes: "",
+        blockers: "",
+        skipped: true,
+        skipReason: reason,
         submittedAt: new Date(),
       },
       { upsert: true, new: true }
@@ -60,7 +104,19 @@ class HistoryService {
       date: { $gte: this.getStartOfDay(startDate) },
     }).sort({ date: -1 });
   }
+
+  async getPendingUsers(enabledSlackUserIds: string[]): Promise<string[]> {
+    const today = this.getStartOfDay(new Date());
+    
+    const submittedToday = await DailyStatus.find({
+      date: today,
+      slackUserId: { $in: enabledSlackUserIds },
+    }).select("slackUserId");
+
+    const submittedIds = new Set(submittedToday.map((s) => s.slackUserId));
+    
+    return enabledSlackUserIds.filter((id) => !submittedIds.has(id));
+  }
 }
 
 export const historyService = new HistoryService();
-
