@@ -20,6 +20,9 @@ async function main(): Promise<void> {
   // Create Express app
   const app = express();
 
+  // Trust proxy for proper IP detection (Heroku, ngrok, etc.)
+  app.set("trust proxy", 1);
+
   // Capture raw body for Slack signature verification
   app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
   app.use(express.json({ verify: captureRawBody }));
