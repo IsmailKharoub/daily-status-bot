@@ -8,6 +8,7 @@ import {
   getScheduleSettings,
   updateSchedule,
   sendDailyPrompts,
+  sendDailyPromptForUser,
   COMMON_TIMEZONES,
 } from "../scheduler/daily-prompt";
 
@@ -196,12 +197,28 @@ router.post("/api/schedule", authMiddleware, async (req: Request, res: Response)
   }
 });
 
-// Manual trigger
+// Manual trigger (all users)
 router.post("/api/trigger", authMiddleware, async (_req: Request, res: Response) => {
   try {
     // Run in background, respond immediately
     sendDailyPrompts().catch(console.error);
     res.json({ success: true, message: "Daily prompts triggered" });
+  } catch (error) {
+    res.status(500).json({ error: String(error) });
+  }
+});
+
+// Manual trigger for specific user
+router.post("/api/trigger/:email", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { email } = req.params;
+    const result = await sendDailyPromptForUser(email);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json({ error: result.message });
+    }
   } catch (error) {
     res.status(500).json({ error: String(error) });
   }

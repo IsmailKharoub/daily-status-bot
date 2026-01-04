@@ -637,6 +637,9 @@
               </div>
             </div>
             <div class="user-actions">
+              <button class="btn-primary btn-small" onclick="triggerUser('${user.email}')" ${!user.linearUserId || !user.slackUserId ? 'disabled' : ''}>
+                Test
+              </button>
               <button class="btn-secondary btn-small" onclick="toggleUser('${user.email}')">
                 ${user.enabled ? 'Disable' : 'Enable'}
               </button>
@@ -737,6 +740,25 @@
         }
       } catch {
         showToast('Failed to refresh user', true);
+      }
+    }
+    
+    async function triggerUser(email) {
+      try {
+        const res = await fetch(`/admin/api/trigger/${encodeURIComponent(email)}`, {
+          method: 'POST',
+          headers: { 'X-Admin-Key': sessionToken }
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(data.message || `Triggered ${email}`);
+        } else {
+          showToast(data.error || 'Failed to trigger', true);
+        }
+      } catch {
+        showToast('Failed to trigger', true);
       }
     }
     

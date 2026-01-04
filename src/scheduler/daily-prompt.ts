@@ -185,5 +185,36 @@ export const COMMON_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
+// Send daily prompt to a specific user by email
+async function sendDailyPromptForUser(email: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const mapping = await userService.getUserMappingByEmail(email);
+    
+    if (!mapping) {
+      return { success: false, message: `No mapping found for ${email}` };
+    }
+
+    const [tickets, yesterdayStatus] = await Promise.all([
+      linearService.getIncompleteTicketsForUser(mapping.linearUserId),
+      historyService.getYesterdayStatus(mapping.slackUserId),
+    ]);
+
+    if (tickets.length > 0) {
+      await slackService.sendTicketSelectionDM(
+        mapping.slackUserId,
+        tickets,
+        yesterdayStatus
+      );
+      return { success: true, message: `Sent ${tickets.length} tickets to ${email}` };
+    } else {
+      await slackService.sendNoTicketsMessage(mapping.slackUserId);
+      return { success: true, message: `Sent no-tickets message to ${email}` };
+    }
+  } catch (error) {
+    console.error(`Failed to trigger for ${email}:`, error);
+    return { success: false, message: String(error) };
+  }
+}
+
 // Export for manual triggering
-export { sendDailyPrompts };
+export { sendDailyPrompts, sendDailyPromptForUser };

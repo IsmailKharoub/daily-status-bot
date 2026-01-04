@@ -100,6 +100,15 @@ class UserService {
     const user = await EnabledUser.findOne({ slackUserId, enabled: true });
     return user?.linearUserId ?? null;
   }
+
+  // Get user mapping by email
+  async getUserMappingByEmail(email: string): Promise<{ linearUserId: string; slackUserId: string } | null> {
+    const user = await EnabledUser.findOne({ email: email.toLowerCase() });
+    if (!user || !user.linearUserId || !user.slackUserId) {
+      return null;
+    }
+    return { linearUserId: user.linearUserId, slackUserId: user.slackUserId };
+  }
 }
 
 export const userService = new UserService();
