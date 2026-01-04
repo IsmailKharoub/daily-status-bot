@@ -12,6 +12,10 @@ export interface IDailyStatus extends Document {
   linearUserId: string;
   date: Date;
   selectedTickets: ISelectedTicket[];
+  notes?: string;
+  blockers?: string;
+  skipped: boolean;
+  skipReason?: string;
   submittedAt: Date;
 }
 
@@ -30,6 +34,10 @@ const DailyStatusSchema = new Schema<IDailyStatus>({
   linearUserId: { type: String, required: true, index: true },
   date: { type: Date, required: true, index: true },
   selectedTickets: { type: [SelectedTicketSchema], default: [] },
+  notes: { type: String, default: "" },
+  blockers: { type: String, default: "" },
+  skipped: { type: Boolean, default: false },
+  skipReason: { type: String, default: "" },
   submittedAt: { type: Date, default: Date.now },
 });
 
@@ -40,4 +48,3 @@ export const DailyStatus = mongoose.model<IDailyStatus>(
   "DailyStatus",
   DailyStatusSchema
 );
-
