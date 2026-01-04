@@ -69,9 +69,7 @@ router.post("/api/auth", (req: Request, res: Response) => {
 
 // Serve admin UI
 router.get("/", (_req: Request, res: Response) => {
-  const publicPath = process.env.NODE_ENV === "production" 
-    ? path.join(__dirname, "public/admin.html")
-    : path.join(__dirname, "../../public/admin.html");
+  const publicPath = path.join(__dirname, "../public/admin.html");
   res.sendFile(publicPath);
 });
 

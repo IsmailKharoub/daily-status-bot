@@ -20,9 +20,8 @@ async function main(): Promise<void> {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
-  // Serve static files for admin UI (works in both dev and prod)
-  const publicPath = path.join(__dirname, process.env.NODE_ENV === "production" ? "public" : "../public");
-  app.use("/admin", express.static(publicPath));
+  // Serve static files for admin UI
+  app.use("/admin", express.static(path.join(__dirname, "../public")));
 
   // Mount routes
   app.use("/slack", slackRoutes);
