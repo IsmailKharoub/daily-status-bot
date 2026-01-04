@@ -15,23 +15,29 @@ A Slack bot that integrates with Linear to collect and share daily team status u
 - **🔄 Linear Cycle Aware** — Only shows tickets from your active Linear cycle (sprint)
 - **📢 Team Channel Updates** — Posts daily status to a designated Slack channel
 - **⏰ Smart Scheduling** — Configurable cron schedule with timezone support
-- **🔐 Admin Dashboard** — Web UI with TOTP authentication for managing users and settings
+- **🔔 Auto-Reminders** — Sends reminders to users who haven't submitted
+- **⏭️ Skip/OOO Mode** — Users can skip standups with a reason
+- **📝 Notes & Blockers** — Add additional context or blockers to your status
+- **💬 Slash Commands** — `/daily` to trigger on-demand, `/daily status` to view
+- **🔐 Admin Dashboard** — Web UI with JWT + TOTP authentication
+- **📊 Team Dashboard** — Real-time view of who's submitted and who's pending
 - **👥 User Management** — Enable/disable users, refresh mappings, per-user testing
+- **🛡️ Security** — Slack request signature verification, rate limiting, input validation
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Cron Job      │────▶│  Express Server │────▶│    MongoDB      │
-│  (Scheduler)    │     │   (API + UI)    │     │   (Storage)     │
+│   Cron Jobs     │────▶│  Express Server │────▶│    MongoDB      │
+│ (Daily+Remind)  │     │   (API + UI)    │     │   (Storage)     │
 └─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    ▼                         ▼
-           ┌─────────────────┐       ┌─────────────────┐
-           │   Linear API    │       │   Slack API     │
-           │  (Tickets)      │       │  (Messaging)    │
-           └─────────────────┘       └─────────────────┘
+                                │
+                   ┌────────────┴────────────┐
+                   ▼                         ▼
+          ┌─────────────────┐       ┌─────────────────┐
+          │   Linear API    │       │   Slack API     │
+          │  (Tickets)      │       │  (Messaging)    │
+          └─────────────────┘       └─────────────────┘
 ```
 
 ## 📁 Project Structure
@@ -40,24 +46,30 @@ A Slack bot that integrates with Linear to collect and share daily team status u
 src/
 ├── index.ts              # Entry point
 ├── config/
-│   └── env.ts            # Environment validation
+│   ├── env.ts            # Environment validation
+│   └── logger.ts         # Pino logger
 ├── db/
 │   └── mongo.ts          # MongoDB connection
+├── middleware/
+│   ├── auth.ts           # JWT authentication
+│   ├── slack-verify.ts   # Slack signature verification
+│   └── rate-limit.ts     # Rate limiting
+├── validation/
+│   └── schemas.ts        # Zod validation schemas
 ├── models/               # Mongoose schemas
 │   ├── pending-selection.model.ts
-│   ├── user-mapping.model.ts
 │   ├── daily-status.model.ts
 │   ├── enabled-user.model.ts
 │   └── settings.model.ts
 ├── services/
 │   ├── linear.service.ts # Linear API client
 │   ├── slack.service.ts  # Slack messaging
-│   ├── user.service.ts   # User mapping
+│   ├── user.service.ts   # User management
 │   └── history.service.ts
 ├── scheduler/
 │   └── daily-prompt.ts   # Cron job logic
 └── routes/
-    ├── slack.routes.ts   # Slack webhooks
+    ├── slack.routes.ts   # Slack webhooks + slash commands
     └── admin.routes.ts   # Admin API + UI
 ```
 
@@ -101,23 +113,37 @@ MONGODB_URI=mongodb+srv://...
 # Server
 PORT=3000
 
-# Schedule (9 AM Sun-Thu)
-CRON_SCHEDULE=0 9 * * 0-4
+# Schedule (9 AM Mon-Fri)
+CRON_SCHEDULE=0 9 * * 1-5
 
-# Admin (generate with: npx otplib-cli generate)
-ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
+# Admin Auth
+ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP  # Generate with: npx otplib-cli generate
+JWT_SECRET=your-super-secret-jwt-key  # Long random string
+JWT_EXPIRES_IN=24h                     # Token expiration (default: 24h)
+
+# Reminder (optional)
+REMINDER_DELAY_HOURS=2                 # Hours after daily prompt (default: 2)
+
+# Logging (optional)
+LOG_LEVEL=info                         # debug, info, warn, error
 ```
 
 ### 3. Setup Slack App
 
 Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) with these OAuth scopes:
 
+**Bot Token Scopes:**
 - `chat:write` — Send messages
 - `users:read` — List users
 - `users:read.email` — Access emails for mapping
 - `im:write` — Open DMs
+- `commands` — Slash commands
 
-Set the Interactivity URL to: `https://your-domain.com/slack/interactions`
+**URLs to configure:**
+- Interactivity URL: `https://your-domain.com/slack/interactions`
+- Slash Commands:
+  - `/daily` → `https://your-domain.com/slack/commands`
+  - `/skip` → `https://your-domain.com/slack/commands`
 
 ### 4. Run
 
@@ -138,16 +164,37 @@ npm start
 
 ## 🎮 Admin Dashboard
 
-The admin UI (`/admin`) provides:
+The admin UI (`/admin`) provides three tabs:
 
-| Feature | Description |
-|---------|-------------|
-| **Schedule** | View/edit cron schedule and timezone |
-| **Trigger Now** | Manually trigger prompts for all users |
-| **Settings** | Update Slack channel ID |
-| **User Management** | Add, remove, enable/disable users |
-| **Per-User Test** | Send prompt to individual user |
+### Dashboard Tab
+- **Stats** — Total users, submitted count, pending count
+- **Submitted Today** — Who submitted with ticket details
+- **Pending** — Who hasn't submitted yet (with "Send Reminder" button)
+- Auto-refreshes every 30 seconds
+
+### Users Tab
+| Action | Description |
+|--------|-------------|
+| **Add User** | Add by email (auto-resolves Linear/Slack IDs) |
+| **Test** | Send prompt to individual user |
+| **Enable/Disable** | Toggle user participation |
 | **Refresh** | Re-sync Linear/Slack IDs |
+| **Remove** | Delete user from system |
+
+### Settings Tab
+| Setting | Description |
+|---------|-------------|
+| **Schedule** | Cron expression + timezone |
+| **Trigger Now** | Manually send prompts to all users |
+| **Channel ID** | Slack channel for status posts |
+
+## 💬 Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/daily` | Get your ticket selection prompt |
+| `/daily status` | View your submitted status for today |
+| `/skip [reason]` | Skip today's standup with optional reason |
 
 ## 📅 Cron Schedule Examples
 
@@ -160,10 +207,16 @@ The admin UI (`/admin`) provides:
 
 ## 🔧 API Endpoints
 
-### Slack Webhooks
-- `POST /slack/interactions` — Handle button clicks
+### Public
+- `GET /` — Health check
+- `GET /slack/health` — Slack route health
 
-### Admin API (requires auth)
+### Slack Webhooks
+- `POST /slack/interactions` — Handle button clicks, modal submissions
+- `POST /slack/commands` — Handle slash commands
+
+### Admin API (requires JWT)
+- `POST /admin/api/auth` — TOTP → JWT token
 - `GET /admin/api/users` — List users
 - `POST /admin/api/users` — Add user
 - `DELETE /admin/api/users/:email` — Remove user
@@ -175,6 +228,8 @@ The admin UI (`/admin`) provides:
 - `POST /admin/api/trigger/:email` — Trigger specific user
 - `GET /admin/api/settings` — Get settings
 - `POST /admin/api/settings` — Update settings
+- `GET /admin/api/status/today` — Team dashboard data
+- `GET /admin/api/status/:email/history` — User's history
 
 ## 🚢 Deployment
 
@@ -187,6 +242,7 @@ heroku create your-app-name
 # Set environment variables
 heroku config:set LINEAR_API_KEY=xxx
 heroku config:set SLACK_BOT_TOKEN=xxx
+heroku config:set JWT_SECRET=your-secret-key
 # ... set all other env vars
 
 # Deploy
@@ -213,12 +269,27 @@ CMD ["npm", "start"]
 2. **Slack DM** — Sends an interactive message showing:
    - Yesterday's focus (if any)
    - Checkbox list of today's tickets
+   - Submit, Add Notes, and Skip buttons
 
-3. **User Selection** — User checks the tickets they'll work on and clicks Submit
+3. **User Selection** — User can:
+   - Check tickets and submit
+   - Add notes/blockers via modal
+   - Skip with a reason
 
-4. **Channel Post** — Bot posts the selection to the team channel
+4. **Channel Post** — Bot posts the selection (with notes/blockers if any) to the team channel
 
-5. **History** — Selections are stored for "yesterday's focus" in the next prompt
+5. **Reminder** — If user hasn't submitted X hours later, sends a reminder
+
+6. **History** — Selections are stored for "yesterday's focus" in the next prompt
+
+## 🔒 Security Features
+
+- **Slack Signature Verification** — All Slack requests are verified
+- **JWT Authentication** — Stateless admin sessions with configurable expiry
+- **TOTP 2FA** — Time-based one-time passwords for admin login
+- **Rate Limiting** — API and auth endpoints are rate-limited
+- **Input Validation** — All inputs validated with Zod schemas
+- **Graceful Shutdown** — Clean handling of SIGTERM/SIGINT
 
 ## 📄 License
 
@@ -227,4 +298,3 @@ MIT
 ---
 
 Built with ☕ and TypeScript
-
